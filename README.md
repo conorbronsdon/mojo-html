@@ -9,6 +9,8 @@
 [![Podcast](https://img.shields.io/badge/Podcast-Chain_of_Thought-purple?style=flat-square)](https://chainofthought.show)
 [![X](https://img.shields.io/badge/X-@ConorBronsdon-black?style=flat-square&logo=x)](https://x.com/ConorBronsdon)
 
+<img src="docs/demo.gif" alt="Demo: extracting the readable article from a Substack page — title, description, and 6.6 KB of confident main text" width="800">
+
 </div>
 
 As of mid-2026 the Mojo ecosystem had no library for parsing HTML or pulling
