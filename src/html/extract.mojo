@@ -215,6 +215,23 @@ def _nearest_open(stack: List[String], name: String) -> Int:
     return -1
 
 
+def _open_incr(mut counts: Dict[String, Int], name: String):
+    counts[name] = counts.get(name, 0) + 1
+
+
+def _open_decr(mut counts: Dict[String, Int], name: String):
+    counts[name] = counts.get(name, 0) - 1
+
+
+def _any_open(counts: Dict[String, Int], name: String) -> Bool:
+    """O(1) check: is any element with `name` currently on the stack?
+
+    Guards `_nearest_open`, whose linear scan makes a flood of stray end
+    tags (`</span>` with no matching open) O(n^2) on adversarial input.
+    """
+    return counts.get(name, 0) > 0
+
+
 def extract(var source: String) raises -> Page:
     """Parse an HTML document and extract metadata plus readable text.
 
@@ -229,10 +246,12 @@ def extract(var source: String) raises -> Page:
     var tok = HtmlTokenizer(source^)
     var page = Page()
     var stack = List[String]()
+    var open_counts = Dict[String, Int]()
     var excluded = 0
     var head_depth = 0
     var title_depth = 0
     var title_raw = String()
+    var title_done = False
     var og_title = String()
     var body_raw = String()
     var a_active = False
@@ -249,6 +268,7 @@ def extract(var source: String) raises -> Page:
         if event.kind == EVENT_START:
             ref name = event.name
             stack.append(name.copy())
+            _open_incr(open_counts, name)
             if name == "html":
                 if page.lang.byte_length() == 0:
                     page.lang = _attr(event.attrs, "lang")
@@ -301,7 +321,10 @@ def extract(var source: String) raises -> Page:
             if excluded > 0:
                 continue
             if title_depth > 0:
-                title_raw += event.text
+                # Only the first non-empty <title> wins; later ones (e.g.
+                # SVG icon <title>s in the body) must not be concatenated.
+                if not title_done:
+                    title_raw += event.text
                 continue
             if head_depth > 0:
                 continue
@@ -316,18 +339,27 @@ def extract(var source: String) raises -> Page:
             # Liberal recovery: match the nearest open element with this
             # name, implicitly closing anything opened above it. A stray
             # end tag matching nothing is ignored.
+            if not _any_open(open_counts, event.name):
+                continue  # O(1): no such element open, skip the linear scan
             var idx = _nearest_open(stack, event.name)
             if idx == -1:
                 continue
             var j = len(stack) - 1
             while j >= idx:
                 ref closing = stack[j]
+                _open_decr(open_counts, closing)
                 if closing == "head":
                     if head_depth > 0:
                         head_depth -= 1
                 elif closing == "title":
                     if title_depth > 0:
                         title_depth -= 1
+                    # Freeze the first <title> that closed with real text so
+                    # later titles (SVG icon <title>s) are not concatenated.
+                    if not title_done and (
+                        _collapse(title_raw).byte_length() > 0
+                    ):
+                        title_done = True
                 if _is_excluded(closing):
                     excluded -= 1
                 if excluded == 0 and head_depth == 0 and title_depth == 0:
@@ -585,6 +617,7 @@ def main_text_confident(var source: String) raises -> MainContent:
     """
     var tok = HtmlTokenizer(source^)
     var stack = List[String]()
+    var open_counts = Dict[String, Int]()
     var node_idx = List[Int]()
     var stack_drop = List[Bool]()
     var open_nodes = List[Int]()
@@ -637,6 +670,7 @@ def main_text_confident(var source: String) raises -> MainContent:
                 elif name == "td" or name == "th":
                     frag.append(String(" "))
             stack.append(name.copy())
+            _open_incr(open_counts, name)
             node_idx.append(this_node)
             stack_drop.append(caused_drop)
 
@@ -654,12 +688,15 @@ def main_text_confident(var source: String) raises -> MainContent:
                     nodes[top].comma += 1
 
         elif event.kind == EVENT_END:
+            if not _any_open(open_counts, event.name):
+                continue  # O(1): no such element open, skip the linear scan
             var idx = _nearest_open(stack, event.name)
             if idx == -1:
                 continue
             var j = len(stack) - 1
             while j >= idx:
                 ref closing = stack[j]
+                _open_decr(open_counts, closing)
                 if closing == "head":
                     if head_depth > 0:
                         head_depth -= 1
