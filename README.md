@@ -23,6 +23,21 @@ for prose). I built it to pull article text out of pages I'm sourcing for
 research and Chain of Thought show notes: bring a URL's raw bytes in, get
 a title, metadata, and the main-content text out.
 
+### Coming from Python
+
+If you know Python's `readability` (readability-lxml), the extraction workflow maps like this:
+
+| Python (`readability`)      | mojo-html                            |
+| --------------------------- | ------------------------------------ |
+| `doc = Document(html)`       | `var page = extract(html)`          |
+| `doc.title()`               | `page.title`                         |
+| `doc.short_title()` / meta  | `page.meta_description`              |
+| `doc.summary()`             | `main_text_confident(html).text`     |
+
+One difference worth noting: `readability`'s `summary()` returns cleaned
+HTML, whereas `main_text_confident()` returns the main-content **text** (plus
+a `.confident` flag indicating whether extraction was high-confidence).
+
 ## What it handles
 
 - **Tokenizer** (`html.tokenizer.HtmlTokenizer`): pull-based event stream
@@ -148,9 +163,11 @@ malformed input either parses liberally or raises a clean error.
 
 ## Part of a pure-Mojo library suite
 
-Ten pure-Mojo libraries that mirror familiar Python stdlib and PyPI APIs,
+Eleven pure-Mojo libraries that mirror familiar Python stdlib and PyPI APIs,
 filling gaps in the native Mojo ecosystem:
 
+- [mojo-xml](https://github.com/conorbronsdon/mojo-xml) — general-purpose XML
+  parsing, an ElementTree-shaped DOM (Python's `xml.etree.ElementTree`)
 - [mojo-feed](https://github.com/conorbronsdon/mojo-feed) — RSS, Atom, and
   JSON Feed parsing (Python's `feedparser`)
 - [mojo-captions](https://github.com/conorbronsdon/mojo-captions) — SRT and
