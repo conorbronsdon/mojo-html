@@ -11,4 +11,4 @@ test = "mojo run -I src test/test_tokenizer.mojo && mojo run -I src test/test_ex
 demo = "mojo run -I src examples/extract_article.mojo test/data/substack_article.html"
 
 [dependencies]
-mojo = ">=1.0.0b3,<2"
+mojo = ">=1.0.0b3.dev0,<2"

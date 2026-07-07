@@ -4,6 +4,7 @@ from html.tokenizer import (
     HtmlTokenizer,
     HtmlEvent,
     is_void_element,
+    normalize_encoding_bytes,
     EVENT_START,
     EVENT_END,
     EVENT_TEXT,
@@ -208,6 +209,44 @@ def test_invalid_utf8_replaced_lossily() raises:
     var source = String(StringSlice(unsafe_from_utf8=Span(raw_bytes)))
     var events = _events(source^)
     assert_equal(events[1].text, "a�b")
+
+
+def _bytes_of(s: String) -> List[UInt8]:
+    var out = List[UInt8]()
+    for b in s.as_bytes():
+        out.append(b)
+    return out^
+
+
+def test_overlong_utf8_rejected() raises:
+    # E0 80 80 is an overlong 3-byte encoding of U+0000. A conformant
+    # decoder must reject it (each byte -> U+FFFD), never round-trip the
+    # raw bytes into the resulting String.
+    var overlong: List[UInt8] = [0xE0, 0x80, 0x80]
+    var got = normalize_encoding_bytes(Span(overlong))
+    assert_equal(got, "���")
+    # And an overlong 4-byte encoding of U+0000 (F0 80 80 80).
+    var overlong4: List[UInt8] = [0xF0, 0x80, 0x80, 0x80]
+    var got4 = normalize_encoding_bytes(Span(overlong4))
+    assert_equal(got4, "����")
+    # A legitimate multi-byte codepoint must still survive intact.
+    var euro: List[UInt8] = [0xE2, 0x82, 0xAC]  # U+20AC
+    var got_euro = normalize_encoding_bytes(Span(euro))
+    assert_equal(got_euro, "€")
+
+
+def test_overlong_utf8_in_text_event() raises:
+    # The overlong bytes embedded in element text must not poison the
+    # emitted text event either.
+    var raw_bytes = _bytes_of("<p>a")
+    raw_bytes.append(0xE0)
+    raw_bytes.append(0x80)
+    raw_bytes.append(0x80)
+    for b in "b</p>".as_bytes():
+        raw_bytes.append(b)
+    var source = String(StringSlice(unsafe_from_utf8=Span(raw_bytes)))
+    var events = _events(source^)
+    assert_equal(events[1].text, "a���b")
 
 
 def test_truncated_tag_at_eof_liberal() raises:

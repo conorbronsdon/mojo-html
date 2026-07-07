@@ -221,9 +221,13 @@ def _named_entity_cp(name: String) -> Int:
     return -1
 
 
-def _transcode_latin(source: String) -> String:
-    """Re-encode Windows-1252/Latin-1 bytes as UTF-8."""
-    var bytes = source.as_bytes()
+def _transcode_latin(bytes: Span[UInt8, _]) -> String:
+    """Re-encode Windows-1252/Latin-1 bytes as UTF-8.
+
+    Takes raw bytes directly (not a String) because the input is by
+    definition not valid UTF-8 — wrapping it in a String first would
+    smuggle invalid bytes past `unsafe_from_utf8`.
+    """
     var out = String()
     var i = 0
     while i < len(bytes):
@@ -341,7 +345,21 @@ def _utf8_lossy(data: Span[UInt8, _]) -> String:
                 ok = False
                 break
             cp = (cp << 6) | (Int(c) & 0x3F)
-        if not ok or cp > 0x10FFFF or (cp >= 0xD800 and cp <= 0xDFFF):
+        # Reject overlong encodings: a codepoint must use the shortest form.
+        # E.g. E0 80 80 decodes to U+0000 but is an overlong 3-byte form;
+        # accepting it would round the raw bytes back into the String and
+        # poison every downstream operation on it.
+        var min_cp = 0x80
+        if seq_len == 3:
+            min_cp = 0x800
+        elif seq_len == 4:
+            min_cp = 0x10000
+        if (
+            not ok
+            or cp < min_cp
+            or cp > 0x10FFFF
+            or (cp >= 0xD800 and cp <= 0xDFFF)
+        ):
             _append_codepoint(out, 0xFFFD)
             i += 1
             continue
@@ -382,8 +400,7 @@ def normalize_encoding_bytes(data: Span[UInt8, _]) raises -> String:
         or enc == "windows-1252"
         or enc == "cp1252"
     ):
-        var latin = String(StringSlice(unsafe_from_utf8=body))
-        return _transcode_latin(latin)
+        return _transcode_latin(body)
     return _utf8_lossy(body)
 
 

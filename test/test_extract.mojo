@@ -38,6 +38,27 @@ def test_title_entity_decoded() raises:
     assert_equal(page.title, "Q&A — part 1")
 
 
+def test_title_only_first_nonempty() raises:
+    # An SVG icon in the body carries its own <title>; only the document's
+    # first non-empty <title> should be captured, not a concatenation.
+    var page = extract(
+        "<html><head><title>Real Article Title</title></head>"
+        "<body><h1>Heading</h1><p>Body text.</p>"
+        '<svg viewBox="0 0 16 16"><title>search icon</title></svg>'
+        "<p>More text.</p></body></html>"
+    )
+    assert_equal(page.title, "Real Article Title")
+
+
+def test_title_first_empty_then_real() raises:
+    # An empty leading <title> must not lock out a later real one.
+    var page = extract(
+        "<html><head><title></title><title>Second Title</title></head>"
+        "<body><p>x</p></body></html>"
+    )
+    assert_equal(page.title, "Second Title")
+
+
 def test_block_elements_produce_newlines() raises:
     var page = extract("<body><p>one</p><p>two</p><div>three</div></body>")
     assert_equal(page.text, "one\ntwo\nthree")
@@ -305,6 +326,31 @@ def test_substack_main_text_excludes_widgets() raises:
     assert_true("Sign in" not in text)
     assert_true("Type your email" not in text)
     assert_true("Leave a comment" not in text)
+
+
+def _flood_doc(n: Int) -> String:
+    var html = String("<html><body>")
+    for _ in range(n):
+        html += "<div>"
+    for _ in range(n):
+        html += "</span>"  # stray: no <span> is open, must be ignored
+    html += "<p>The quick brown fox jumps over the lazy dog.</p>"
+    html += "</body></html>"
+    return html^
+
+
+def test_stray_end_tag_flood_is_bounded() raises:
+    # A deep stack of unclosed <div> plus a flood of stray </span> end tags
+    # used to be O(n^2): each stray forced a full-stack scan in
+    # _nearest_open. The per-tag-name open count now rejects them in O(1).
+    # This asserts the liberal-recovery behavior (strays ignored, real
+    # content still extracted) on that pattern; the wall-clock proof of the
+    # O(n^2) -> O(n) fix lives in the standalone DoS repro in the PR.
+    var html = _flood_doc(2000)
+    var page = extract(html.copy())
+    assert_equal(page.text, "The quick brown fox jumps over the lazy dog.")
+    var mt = main_text(html^)
+    assert_true("quick brown fox" in mt)
 
 
 def main() raises:
