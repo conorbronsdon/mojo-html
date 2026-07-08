@@ -280,9 +280,7 @@ def test_docs_python_extract() raises:
 
 
 def test_docs_python_main_text() raises:
-    var mc = main_text_confident(
-        open("test/data/docs_python.html", "r").read()
-    )
+    var mc = main_text_confident(open("test/data/docs_python.html", "r").read())
     assert_true(mc.confident)
     # body prose is present ...
     assert_true("Comments in Python" in mc.text)
