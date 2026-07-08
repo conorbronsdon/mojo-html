@@ -282,8 +282,10 @@ def test_strict_unknown_entity() raises:
 
 def test_strict_accepts_valid_document() raises:
     var tok = HtmlTokenizer(
-        '<!DOCTYPE html><html><head><title>t</title></head>'
-        '<body><p>x &amp; y</p><br></body></html>',
+        (
+            "<!DOCTYPE html><html><head><title>t</title></head>"
+            "<body><p>x &amp; y</p><br></body></html>"
+        ),
         strict=True,
     )
     while True:

@@ -178,9 +178,7 @@ def _collapse(s: String) -> String:
         var run_start = i
         while i < n:
             var c = bytes[i]
-            if c == 0x20 or c == 0x09 or c == 0x0A or c == 0x0D or (
-                c == 0x0C
-            ):
+            if c == 0x20 or c == 0x09 or c == 0x0A or c == 0x0D or (c == 0x0C):
                 break
             if c == 0xC2 and i + 1 < n and bytes[i + 1] == 0xA0:
                 break
@@ -395,7 +393,6 @@ def extract(var source: String) raises -> Page:
         page.title = _collapse(og_title)
     page.text = _normalize_blocks(body_raw)
     return page^
-
 
 
 # --- readability-style main-content scorer --------------------------------
