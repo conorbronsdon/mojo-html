@@ -29,4 +29,4 @@ jobs:
           git diff --exit-code || (echo "::error::Run 'pixi run fmt' — sources are not mojo-format clean" && exit 1)
 
       - name: Tests
-        run: .venv/bin/mojo run -I src test/test_tokenizer.mojo && .venv/bin/mojo run -I src test/test_extract.mojo
+        run: .venv/bin/mojo run -I src test/test_tokenizer.mojo && .venv/bin/mojo run -I src test/test_extract.mojo && .venv/bin/mojo run -I src test/test_errors.mojo

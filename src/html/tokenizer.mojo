@@ -13,6 +13,8 @@ markup in its default liberal mode. Structural recovery (unclosed <p>,
 <li>, crossed tags) is the mapping layer's job — see extract.mojo.
 """
 
+from html.errors import parse_error
+
 comptime EVENT_START = 0
 comptime EVENT_END = 1
 comptime EVENT_TEXT = 2
@@ -486,9 +488,10 @@ struct HtmlTokenizer(Copyable, Movable):
 
     With `strict=True` the tokenizer reports well-formedness problems —
     mismatched or stray end tags, elements left open at EOF, malformed
-    or unknown entities — as errors with a line/column location instead
-    of recovering liberally. Useful for linting HTML you produce; leave
-    it off for pages you merely consume.
+    or unknown entities — as errors with a line/column location and a
+    snippet of the offending line instead of recovering liberally.
+    Useful for linting HTML you produce; leave it off for pages you
+    merely consume.
     """
 
     var src: String
@@ -498,6 +501,10 @@ struct HtmlTokenizer(Copyable, Movable):
     var _has_pending_end: Bool
     var _rawtext: String
     var _open: List[String]
+    # Byte offset of each open element's start tag, parallel to `_open`,
+    # so an unclosed-element error can point at the construct start
+    # rather than the (useless) EOF position.
+    var _open_pos: List[Int]
 
     def __init__(out self, var source: String, *, strict: Bool = False) raises:
         self.src = normalize_encoding(source^)
@@ -507,31 +514,17 @@ struct HtmlTokenizer(Copyable, Movable):
         self._has_pending_end = False
         self._rawtext = String()
         self._open = List[String]()
-
-    def _location(self, p: Int) -> String:
-        """Human-readable "line L, column C" for byte offset `p`.
-
-        Computed lazily (only on error paths), so the happy path pays
-        nothing for location tracking.
-        """
-        var bytes = self.src.as_bytes()
-        var line = 1
-        var col = 1
-        var limit = p
-        if limit > len(bytes):
-            limit = len(bytes)
-        for i in range(limit):
-            if bytes[i] == 0x0A:
-                line += 1
-                col = 1
-            else:
-                col += 1
-        return String("line ") + String(line) + ", column " + String(col)
+        self._open_pos = List[Int]()
 
     def _strict_error(self, msg: String, p: Int) -> Error:
-        return Error(
-            "mojo-html [strict]: " + msg + " (" + self._location(p) + ")"
-        )
+        """Strict-mode error locating `msg` at byte offset `p`.
+
+        Position and snippet come from `html.errors.parse_error`, so the
+        message reads `mojo-html [strict]: <msg> at line <L>, column <C>:
+        '<snippet>'`. Computed lazily (only on error paths), so the happy
+        path pays nothing for location tracking.
+        """
+        return parse_error("mojo-html [strict]: " + msg, self.src.as_bytes(), p)
 
     def _len(self) -> Int:
         return self.src.byte_length()
@@ -577,7 +570,10 @@ struct HtmlTokenizer(Copyable, Movable):
         var b = self._at(i + 1)
         return _is_alpha(b) or b == _SLASH or b == _BANG or b == _QUESTION
 
-    def _decode_entities(self, var raw: String) raises -> String:
+    def _decode_entities(self, var raw: String, base: Int) raises -> String:
+        # `base` is the byte offset of `raw`'s first byte within
+        # `self.src` (every caller passes a direct slice of the source),
+        # so strict-mode entity errors can point at the offending '&'.
         # Zero-copy fast path: most text and attribute values contain no
         # entities at all — hand the string back untouched.
         var has_amp = False
@@ -610,18 +606,21 @@ struct HtmlTokenizer(Copyable, Movable):
             if semi == -1:
                 if self.strict:
                     raise self._strict_error(
-                        "bare '&' without a terminated entity", self.pos
+                        "bare '&' without a terminated entity", base + i
                     )
                 # Malformed bare '&' — pass it through (liberal parsing).
                 out += String(StringSlice(unsafe_from_utf8=bytes[i : i + 1]))
                 i += 1
                 continue
-            var entity = self._entity_body(raw, i + 1, semi)
+            var entity = self._entity_body(raw, i + 1, semi, base + i)
             out += entity
             i = semi + 1
         return out^
 
-    def _entity_body(self, raw: String, start: Int, end: Int) raises -> String:
+    def _entity_body(
+        self, raw: String, start: Int, end: Int, amp_pos: Int
+    ) raises -> String:
+        # `amp_pos` is the byte offset of the entity's '&' in `self.src`.
         var bytes = raw.as_bytes()
         var out = String()
         if start < end and bytes[start] == _HASH:
@@ -658,7 +657,7 @@ struct HtmlTokenizer(Copyable, Movable):
             if not valid:
                 if self.strict:
                     raise self._strict_error(
-                        "malformed numeric character reference", self.pos
+                        "malformed numeric character reference", amp_pos
                     )
                 out += String("&")
                 out += String(StringSlice(unsafe_from_utf8=bytes[start:end]))
@@ -678,7 +677,7 @@ struct HtmlTokenizer(Copyable, Movable):
             return out^
         # Unknown named entity — preserve it verbatim (liberal parsing).
         if self.strict:
-            raise self._strict_error("unknown entity &" + name + ";", self.pos)
+            raise self._strict_error("unknown entity &" + name + ";", amp_pos)
         return String("&") + name + String(";")
 
     def _read_name(mut self) -> String:
@@ -715,6 +714,7 @@ struct HtmlTokenizer(Copyable, Movable):
                 continue
             self._skip_space()
             var raw = String()
+            var raw_base = 0
             var has_value = False
             if self.pos < self._len() and self._at(self.pos) == _EQUALS:
                 has_value = True
@@ -730,6 +730,7 @@ struct HtmlTokenizer(Copyable, Movable):
                         ):
                             self.pos += 1
                         raw = self._slice_to_string(vstart, self.pos)
+                        raw_base = vstart
                         if self.pos < self._len():
                             self.pos += 1  # closing quote
                     else:
@@ -741,10 +742,11 @@ struct HtmlTokenizer(Copyable, Movable):
                                 break
                             self.pos += 1
                         raw = self._slice_to_string(vstart, self.pos)
+                        raw_base = vstart
             # First occurrence wins for duplicate attributes (HTML rule).
             if name not in attrs:
                 if has_value:
-                    attrs[name] = self._decode_entities(raw^)
+                    attrs[name] = self._decode_entities(raw^, raw_base)
                 else:
                     attrs[name] = String()
 
@@ -791,7 +793,7 @@ struct HtmlTokenizer(Copyable, Movable):
             else:
                 self.pos = n
         if _rawtext_decodes_entities(name):
-            text = self._decode_entities(text^)
+            text = self._decode_entities(text^, start)
         if text.byte_length() == 0:
             return HtmlEvent.end(name^)
         self._pending_end = name^
@@ -807,11 +809,12 @@ struct HtmlTokenizer(Copyable, Movable):
         while True:
             if self.pos >= self._len():
                 if self.strict and len(self._open) > 0:
+                    # Point at the unclosed start tag, not the EOF.
                     raise self._strict_error(
                         "unclosed element <"
                         + self._open[len(self._open) - 1]
                         + "> at end of input",
-                        self.pos,
+                        self._open_pos[len(self._open_pos) - 1],
                     )
                 return HtmlEvent.eof()
             if self._at(self.pos) != _LT or not self._tag_open_at(self.pos):
@@ -825,7 +828,7 @@ struct HtmlTokenizer(Copyable, Movable):
                         break
                     self.pos += 1
                 var raw = self._slice_to_string(start, self.pos)
-                return HtmlEvent.text_event(self._decode_entities(raw^))
+                return HtmlEvent.text_event(self._decode_entities(raw^, start))
             # self.pos is at '<'. Dispatch on the next byte first so the
             # overwhelmingly common plain tags skip the literal probes.
             var next_b = self._at(self.pos + 1)
@@ -908,8 +911,10 @@ struct HtmlTokenizer(Copyable, Movable):
                             tag_start,
                         )
                     _ = self._open.pop()
+                    _ = self._open_pos.pop()
                 return HtmlEvent.end(name^)
             # Start tag.
+            var start_tag_pos = self.pos
             self.pos += 1
             var name = self._read_name()
             var attrs = self._read_attrs()
@@ -930,4 +935,5 @@ struct HtmlTokenizer(Copyable, Movable):
                 self._rawtext = name.copy()
             elif self.strict:
                 self._open.append(name.copy())
+                self._open_pos.append(start_tag_pos)
             return HtmlEvent.start(name^, attrs^)

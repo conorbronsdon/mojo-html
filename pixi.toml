@@ -7,7 +7,7 @@ platforms = ["linux-64", "osx-arm64"]
 version = "0.1.0"
 
 [tasks]
-test = "mojo run -I src test/test_tokenizer.mojo && mojo run -I src test/test_extract.mojo"
+test = "mojo run -I src test/test_tokenizer.mojo && mojo run -I src test/test_extract.mojo && mojo run -I src test/test_errors.mojo"
 demo = "mojo run -I src examples/extract_article.mojo test/data/substack_article.html"
 bench = "mojo build -I src bench/bench_parse.mojo -o .bench_parse && ./.bench_parse"
 fmt = "mojo format src/ test/ examples/ bench/"

@@ -1,5 +1,6 @@
 """Liberal HTML parsing and readable-text extraction for Mojo (mojo-html)."""
 
+from html.errors import line_col, parse_error
 from html.extract import (
     extract,
     main_text,
