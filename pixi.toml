@@ -9,6 +9,9 @@ version = "0.1.0"
 [tasks]
 test = "mojo run -I src test/test_tokenizer.mojo && mojo run -I src test/test_extract.mojo"
 demo = "mojo run -I src examples/extract_article.mojo test/data/substack_article.html"
+bench = "mojo build -I src bench/bench_parse.mojo -o .bench_parse && ./.bench_parse"
+fmt = "mojo format src/ test/ examples/ bench/"
+docs = "mojo doc -o docs/api.json -I src src/html && python3 docs/render_api.py docs/api.json docs/api.html"
 
 [dependencies]
 mojo = ">=1.0.0b3.dev0,<2"

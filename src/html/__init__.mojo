@@ -1,4 +1,4 @@
-"""mojo-html: liberal HTML parsing and readable-text extraction for Mojo."""
+"""Liberal HTML parsing and readable-text extraction for Mojo (mojo-html)."""
 
 from html.extract import (
     extract,
