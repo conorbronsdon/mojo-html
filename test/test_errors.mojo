@@ -11,7 +11,7 @@ def _assert_lc(source: String, offset: Int, line: Int, col: Int) raises:
 
 
 def _msg(e: Error) -> String:
-    return String.write(e)
+    return String(e)
 
 
 def _strict_drain(var source: String) raises:
